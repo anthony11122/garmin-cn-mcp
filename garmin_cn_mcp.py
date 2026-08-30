@@ -22,41 +22,49 @@ mcp = FastMCP(
     instructions="佳明中国大陆版数据读取服务。连接 connect.garmin.cn，获取运动、健康、睡眠、心率等数据。",
 )
 
-# ─── 会话管理 ─────────────────────────────────────────────────────
-_session = None
-_csrf_token = None
+# ─── 会话管理（garth OAuth 认证，2026-08 修复：原 CAS/ticket 流程已被佳明下线）──
+_garth_ready = False
 _token_dir = Path.home() / ".hermes" / "garmin_tokens"
-_token_file = _token_dir / "garmin_cn_session.json"
+_token_dir_cn = _token_dir / "garth_cn"
 
 
 def _get_session():
-    """获取已认证的 HTTP 会话"""
-    global _session, _csrf_token
+    """获取已认证的 garth 客户端（模块级缓存 + 磁盘 token 复用）"""
+    global _garth_ready
 
-    if _session is not None:
-        return _session, _csrf_token
+    if _garth_ready:
+        return
 
-    import curl_cffi.requests as cffi_requests
+    import garth
 
     _token_dir.mkdir(parents=True, exist_ok=True)
 
-    # 尝试从缓存恢复会话
-    if _token_file.exists():
+    # 1) 尝试从磁盘 token 恢复会话（免登录）
+    if (_token_dir_cn / "oauth1_token.json").exists():
         try:
-            cached = json.loads(_token_file.read_text())
-            if cached.get("expires", 0) > time.time():
-                sess = cffi_requests.Session(impersonate="chrome", timeout=30)
-                for name, value in cached.get("cookies", {}).items():
-                    sess.cookies.set(name, value, domain=cached.get("domain", ".connect.garmin.cn"))
-                _session = sess
-                _csrf_token = cached.get("csrf")
-                return _session, _csrf_token
+            garth.resume(str(_token_dir_cn))
+            # 探活：token 过期会在这里抛异常
+            garth.connectapi("/userprofile-service/socialProfile")
+            garth.save(str(_token_dir_cn))  # 回写可能已刷新的 token
+            _garth_ready = True
+            return
         except Exception:
-            pass
+            pass  # token 失效，走重新登录
 
-    # 新登录
+    # 2) 账号密码登录（国区 domain=garmin.cn）
     email = os.environ.get("GARMIN_CN_EMAIL") or os.environ.get("GARMIN_EMAIL")
     password = os.environ.get("GARMIN_CN_PASSWORD") or os.environ.get("GARMIN_PASSWORD")
+
+    if not email or not password:
+        # 兜底：直接读 ~/.hermes/.env（MCP 进程可能未继承该文件内容）
+        env_file = Path.home() / ".hermes" / ".env"
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                line = line.strip()
+                if line.startswith("GARMIN_CN_EMAIL=") and not email:
+                    email = line.split("=", 1)[1]
+                elif line.startswith("GARMIN_CN_PASSWORD=") and not password:
+                    password = line.split("=", 1)[1]
 
     if not email or not password:
         raise RuntimeError(
@@ -66,72 +74,34 @@ def _get_session():
             "然后重启 MCP 服务器。"
         )
 
-    sess = cffi_requests.Session(impersonate="chrome", timeout=30)
-
-    # Step 1: 移动端 API 登录获取 ticket
-    r = sess.post(
-        "https://sso.garmin.cn/mobile/api/login",
-        params={"clientId": "GCM_ANDROID_DARK", "service": "https://connect.garmin.cn/modern"},
-        json={"username": email, "password": password, "rememberMe": True, "captchaToken": ""},
-        timeout=30,
-    )
-    data = r.json()
-    if data.get("responseStatus", {}).get("type") != "SUCCESSFUL":
-        raise RuntimeError(f"佳明登录失败: {data.get('responseStatus', {}).get('message', '未知错误')}")
-
-    ticket = data["serviceTicketId"]
-
-    # Step 2: 消费 ticket 获取 JWT_WEB + session cookie
-    r = sess.get("https://connect.garmin.cn/modern", params={"ticket": ticket}, allow_redirects=True, timeout=30)
-
-    # Step 3: 提取 CSRF token
-    csrf_match = re.search(r'<meta[^>]*name=["\']csrf-token["\'][^>]*content=["\']([^"\']+)', r.text)
-    csrf = csrf_match.group(1) if csrf_match else ""
-
-    # 缓存会话 (有效期 4 小时)
-    cookies_to_save = {}
-    for c in sess.cookies.jar:
-        if "connect.garmin.cn" in c.domain:
-            cookies_to_save[c.name] = c.value
-
-    _token_file.write_text(json.dumps({
-        "cookies": cookies_to_save,
-        "csrf": csrf,
-        "domain": ".connect.garmin.cn",
-        "expires": time.time() + 4 * 3600,
-    }))
-
-    _session = sess
-    _csrf_token = csrf
-    return _session, _csrf_token
+    garth.configure(domain="garmin.cn")
+    garth.login(email, password)  # MFA 账号会抛错，需要人工介入
+    garth.save(str(_token_dir_cn))  # 持久化 token 供下次复用
+    _garth_ready = True
 
 
 def _api_get(path: str, backend: str = "gc-api") -> Any:
-    """通过 /gc-api/ 代理调用 API"""
-    sess, csrf = _get_session()
-    headers = {
-        "Accept": "application/json",
-        "connect-csrf-token": csrf,
-    }
-    url = f"https://connect.garmin.cn/{backend}{path}"
-    r = sess.get(url, headers=headers, timeout=30)
+    """通过 garth OAuth 调用国区 connect API"""
+    import garth
+    from urllib.parse import urlparse, parse_qsl
 
-    if r.status_code == 401:
-        # 会话过期，清除缓存重试
-        global _session, _csrf_token
-        _session = None
-        _csrf_token = None
-        if _token_file.exists():
-            _token_file.unlink()
-        sess, csrf = _get_session()
-        headers["connect-csrf-token"] = csrf
-        r = sess.get(url, headers=headers, timeout=30)
+    _get_session()
 
-    if r.status_code == 204:
-        return {}
-    if r.ok:
-        return r.json()
-    raise RuntimeError(f"API 错误 {r.status_code}: {path} - {r.text[:200]}")
+    # 把老代码里 "path?query" 形式拆开，garth.connectapi 要求 path 与 params 分离
+    if "?" in path:
+        path, _, qs = path.partition("?")
+        params = dict(parse_qsl(qs))
+    else:
+        params = {}
+
+    try:
+        return garth.connectapi(path, params=params)
+    except Exception:
+        # 会话过期 → 清缓存重新登录一次
+        global _garth_ready
+        _garth_ready = False
+        _get_session()
+        return garth.connectapi(path, params=params)
 
 
 def _today() -> str:

@@ -1,8 +1,24 @@
-# Garmin Connect China MCP Server
+# Garmin Connect China MCP Server（上游修复版）
+
+> **本仓库是 [xinyuxinyuxintaihaohao/garmin-cn-mcp](https://github.com/xinyuxinyuxintaihaohao/garmin-cn-mcp) 的修复版（fork 意义上的下游修复分支，独立维护）。**
+>
+> 上游的登录实现（`sso.garmin.cn/mobile/api/login` 取 ticket → `connect.garmin.cn/modern?ticket=...` 换 session）已于 2026 年 8 月被佳明下线：消费 ticket 时会被重定向到新版 `/signin/` 页面，导致所有 API 调用 401。
+>
+> 本修复版将认证层整体迁移到 **garth OAuth**（`garminconnect` 同源的底层库，官方支持国区 `domain=garmin.cn`），工具层 20 个接口保持不变。已在真实国区账号上完成端到端验证（2026-08-30）。
 
 佳明中国大陆版 (garmin.cn) 的 MCP 数据读取服务。
 
 通过 MCP (Model Context Protocol) 协议，让 AI 助手可以直接读取你的佳明健康和运动数据。
+
+## 与上游的差异
+
+| 项目 | 上游 (xinyuxinyuxintaihaohao) | 本修复版 |
+|------|------------------------------|----------|
+| 登录方式 | CAS ticket + `/gc-api/` 代理 + curl_cffi TLS 伪装（已失效） | garth OAuth1/OAuth2（`domain=garmin.cn`） |
+| 会话持久化 | cookie 缓存 4 小时 | garth token 落盘（`~/.hermes/garmin_tokens/garth_cn`），过期自动刷新、失效自动重登 |
+| 依赖 | mcp, curl_cffi | mcp(<2), garth |
+| 凭据注入 | 仅环境变量 | 环境变量 + `~/.hermes/.env` 兜底自读（MCP 子进程常拿不到环境变量时的保底） |
+| 工具数量 | 20 | 20（接口签名不变） |
 
 ## 功能
 
@@ -29,29 +45,38 @@
 | 🏅 其他 | `get_earned_badges` | 已获徽章 |
 | | `get_gear` | 装备数据 |
 
-## 为什么需要这个？
-
-佳明中国版 (`garmin.cn`) 的 API 架构和国际版 (`garmin.com`) 完全不同：
-
-- 国际版的 `garminconnect` Python 库**不支持**中国版
-- 中国版使用 `/gc-api/` 服务端代理，而不是直接调 `connectapi.garmin.cn`
-- 登录使用 `sso.garmin.cn/mobile/api/login`（移动端 API）
-- 需要 `curl_cffi` 进行 Chrome TLS 指纹伪装来绕过 Cloudflare
-
 ## 安装
 
 ```bash
-# 克隆仓库
-git clone https://github.com/<your-username>/garmin-cn-mcp.git
+git clone https://github.com/anthony11122/garmin-cn-mcp.git
 cd garmin-cn-mcp
 
-# 安装依赖
-pip install -r requirements.txt
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
 ```
+
+依赖说明：
+
+- `mcp>=1.0.0,<2` — 代码基于 v1 的 `FastMCP` API；mcp 2.x 已将其改名，装 2.x 会 `ModuleNotFoundError`
+- `garth>=0.8.0` — Garmin OAuth 认证（国区 `domain=garmin.cn`）
 
 ## 配置
 
-在你的 MCP 客户端配置中添加：
+凭据通过环境变量注入，**绝不要写进任何提交到仓库的文件**：
+
+```bash
+# ~/.hermes/.env（权限建议 chmod 600）
+GARMIN_CN_EMAIL=your-garmin-email@example.com
+GARMIN_CN_PASSWORD=your-password
+```
+
+### Hermes Agent 配置
+
+```bash
+hermes mcp add garmin-cn --command /path/to/garmin-cn-mcp/.venv/bin/python --args /path/to/garmin-cn-mcp/garmin_cn_mcp.py
+```
+
+### 其他 MCP 客户端
 
 ```json
 {
@@ -68,18 +93,6 @@ pip install -r requirements.txt
 }
 ```
 
-### Hermes Agent 配置
-
-```bash
-hermes mcp add garmin-cn -- python3 /path/to/garmin_cn_mcp.py
-```
-
-然后在 `~/.hermes/.env` 中添加：
-```
-GARMIN_CN_EMAIL=your-garmin-email@example.com
-GARMIN_CN_PASSWORD=your-password
-```
-
 ## 使用示例
 
 配置好后，AI 助手可以直接查询你的佳明数据：
@@ -91,29 +104,23 @@ GARMIN_CN_PASSWORD=your-password
 
 ## 技术细节
 
+### 认证流程（本修复版）
+
+1. 磁盘有 garth token → `garth.resume()` 恢复会话，探活成功即免登录
+2. token 缺失/失效 → 环境变量（或 `~/.hermes/.env` 兜底）读取账号密码 → `garth.configure(domain="garmin.cn")` + `garth.login()`
+3. 登录成功后 `garth.save()` 落盘 token；会话中 API 401/异常时自动重登一次
+
 ### API 路径
 
 | 数据类型 | API 路径 |
 |---------|---------|
-| 运动列表 | `/gc-api/activitylist-service/activities/search/activities` |
-| 运动详情 | `/gc-api/activity-service/activity/{id}` |
-| 睡眠数据 | `/gc-api/wellness-service/wellness/dailySleepData?date=` |
-| HRV | `/gc-api/hrv-service/hrv/{date}` |
-| 压力 | `/gc-api/wellness-service/wellness/dailyStress/{date}` |
-| 血氧 | `/gc-api/wellness-service/wellness/daily/spo2/{date}` |
-| 呼吸 | `/gc-api/wellness-service/wellness/daily/respiration/{date}` |
-
-### 登录流程
-
-1. POST `sso.garmin.cn/mobile/api/login` → 获取 service ticket
-2. GET `connect.garmin.cn/modern?ticket=...` → 获取 JWT_WEB cookie + CSRF token
-3. 后续 API 调用通过 `/gc-api/` 代理，携带 CSRF token
-
-## 依赖
-
-- Python 3.10+
-- mcp (MCP SDK)
-- curl_cffi (Chrome TLS 指纹)
+| 运动列表 | `/activitylist-service/activities/search/activities` |
+| 运动详情 | `/activity-service/activity/{id}` |
+| 睡眠数据 | `/wellness-service/wellness/dailySleepData?date=` |
+| HRV | `/hrv-service/hrv/{date}` |
+| 压力 | `/wellness-service/wellness/dailyStress/{date}` |
+| 血氧 | `/wellness-service/wellness/daily/spo2/{date}` |
+| 呼吸 | `/wellness-service/wellness/daily/respiration/{date}` |
 
 ## 许可证
 
