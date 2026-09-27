@@ -67,6 +67,20 @@ _load_env_fallback()
 
 # ─── Garmin Connect (garth OAuth 会话管理) ──────────────────────
 _garth_ready = False
+_display_name_cache = None
+
+
+def _get_display_name() -> str:
+    """获取佳明用户的 displayName（用于 usersummary 等核心端点）"""
+    global _display_name_cache
+    if _display_name_cache:
+        return _display_name_cache
+    try:
+        p = _api_get("/userprofile-service/socialProfile") or {}
+        _display_name_cache = p.get("displayName") or ""
+        return _display_name_cache
+    except Exception:
+        return ""
 
 
 def _get_garmin_session():
@@ -323,7 +337,11 @@ def auto_sync_to_icu(days: int = 1, sync_activities: bool = True) -> str:
             hrv_last_night = hrv_summary.get("lastNightAvg")
 
             # 抓取日常概览 (步数、静息心率、热量)
-            user_summary = _api_get(f"/usersummary-service/usersummary/daily/{d_str}") or {}
+            disp_name = _get_display_name()
+            if disp_name:
+                user_summary = _api_get(f"/usersummary-service/usersummary/daily/{disp_name}?calendarDate={d_str}") or {}
+            else:
+                user_summary = _api_get(f"/usersummary-service/usersummary/daily/{d_str}") or {}
             steps = user_summary.get("totalSteps")
             calories = user_summary.get("totalKilocalories")
             resting_hr = user_summary.get("restingHeartRate")
@@ -451,14 +469,16 @@ def get_today_readiness_and_training_advice() -> str:
     # 2. 如果配置了 Intervals.icu，获取负荷模型
     form_val = None
     if icu_client.is_configured:
-        w_list = icu_client.get_wellness(_days_ago(2), today_str) or []
-        if w_list:
-            latest = w_list[-1]
+        w_list = icu_client.get_wellness(_days_ago(14), today_str) or []
+        valid_items = [w for w in w_list if w.get("ctl") is not None or w.get("atl") is not None]
+        if valid_items:
+            latest = valid_items[-1]
             ctl = latest.get("ctl")
             atl = latest.get("atl")
             tsb = (round(ctl - atl, 1)) if (ctl is not None and atl is not None) else None
             form_val = tsb
             result["intervals_model"] = {
+                "date": latest.get("id"),
                 "fitness_ctl": ctl,
                 "fatigue_atl": atl,
                 "form_tsb": tsb,
@@ -485,6 +505,8 @@ def get_today_readiness_and_training_advice() -> str:
             advice_lines.append(f"当前 Form (TSB) 为 {form_val:+0.1f}（疲劳累积 Overreaching），建议穿插轻松跑或主动恢复。")
         else:
             advice_lines.append(f"当前 Form (TSB) 为 {form_val:+0.1f}（重度疲劳 High Risk），过度训练风险高，应强制休息。")
+    elif icu_client.is_configured:
+        advice_lines.append("已连接 Intervals.icu。今日负荷尚未计算，建议触发 auto_sync_to_icu 自动同步最新数据。")
     else:
         advice_lines.append("未配置 Intervals.icu，仅基于佳明睡眠生成建议。建议配置 API Key 获取 CTL/ATL/TSB 负荷建模。")
 
