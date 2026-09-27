@@ -826,5 +826,9 @@ if __name__ == "__main__":
         transport = "sse"
         mcp.settings.host = args.host
         mcp.settings.port = args.port
+        if hasattr(mcp.settings, "transport_security") and mcp.settings.transport_security:
+            mcp.settings.transport_security.enable_dns_rebinding_protection = False
+            mcp.settings.transport_security.allowed_hosts = ["*"]
+            mcp.settings.transport_security.allowed_origins = ["*"]
 
     mcp.run(transport=transport)
