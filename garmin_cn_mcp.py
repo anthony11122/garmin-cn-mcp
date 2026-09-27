@@ -772,7 +772,18 @@ def get_respiration(date: str = "") -> str:
 
 if __name__ == "__main__":
     import sys
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Garmin CN & Intervals.icu MCP Server")
+    parser.add_argument("--sse", action="store_true", help="Run with SSE transport (HTTP)")
+    parser.add_argument("--host", default=os.environ.get("MCP_HOST", "0.0.0.0"), help="Host for SSE server")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("MCP_PORT", "8000")), help="Port for SSE server")
+    args, _ = parser.parse_known_args()
+
     transport = "stdio"
-    if "--sse" in sys.argv or os.environ.get("MCP_TRANSPORT") == "sse":
+    if args.sse or os.environ.get("MCP_TRANSPORT") == "sse":
         transport = "sse"
+        mcp.settings.host = args.host
+        mcp.settings.port = args.port
+
     mcp.run(transport=transport)
