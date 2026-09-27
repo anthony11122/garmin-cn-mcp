@@ -210,7 +210,7 @@ class IntervalsClient:
                 "sleepScore": payload.get("sleep_score"),
                 "avgSleepingHR": payload.get("avg_sleep_hr"),
                 "steps": payload.get("steps"),
-                "calories": payload.get("calories"),
+                "kcalConsumed": payload.get("calories"),
             }
             body = {k: v for k, v in body.items() if v is not None}
             res = requests.put(url, auth=self.auth, json=body, timeout=12)
