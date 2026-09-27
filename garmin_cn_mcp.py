@@ -38,20 +38,28 @@ _env_loaded = False
 
 
 def _load_env_fallback():
-    """自动加载 ~/.hermes/.env 中的配置，确保在各种 MCP 宿主环境下免配直接运行"""
+    """自动加载 .env 中的配置，确保在各种 MCP 宿主环境下免配直接运行"""
     global _env_loaded
     if _env_loaded:
         return
-    env_file = Path.home() / ".hermes" / ".env"
-    if env_file.exists():
-        for line in env_file.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            k, v = k.strip(), v.strip().strip("'\"")
-            if k not in os.environ:
-                os.environ[k] = v
+    candidates = [
+        Path(__file__).parent / ".env",
+        Path.home() / ".hermes" / ".env",
+        Path.home() / ".env"
+    ]
+    for env_file in candidates:
+        if env_file.exists():
+            try:
+                for line in env_file.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    k, v = k.strip(), v.strip().strip("'\"")
+                    if k not in os.environ:
+                        os.environ[k] = v
+            except Exception:
+                pass
     _env_loaded = True
 
 
@@ -140,10 +148,21 @@ class IntervalsClient:
     BASE_URL = "https://intervals.icu/api/v1"
 
     def __init__(self):
+        pass
+
+    @property
+    def athlete_id(self) -> str:
         _load_env_fallback()
-        self.athlete_id = (os.environ.get("INTERVALS_ATHLETE_ID") or "0").strip()
-        self.api_key = (os.environ.get("INTERVALS_API_KEY") or "").strip()
-        self.auth = ("API_KEY", self.api_key)
+        return (os.environ.get("INTERVALS_ATHLETE_ID") or "0").strip()
+
+    @property
+    def api_key(self) -> str:
+        _load_env_fallback()
+        return (os.environ.get("INTERVALS_API_KEY") or "").strip()
+
+    @property
+    def auth(self) -> Tuple[str, str]:
+        return ("API_KEY", self.api_key)
 
     @property
     def is_configured(self) -> bool:
