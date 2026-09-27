@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "garmin-hyperos": {
+      "command": "python",
+      "args": ["garmin_hyperos_mcp.py"],
+      "env": {
+        "GARMIN_CN_EMAIL": "your-garmin-email@example.com",
+        "GARMIN_CN_PASSWORD": "your-garmin-password",
+        "INTERVALS_API_KEY": "your-intervals-api-key",
+        "INTERVALS_ATHLETE_ID": "0"
+      }
+    }
+  }
+}

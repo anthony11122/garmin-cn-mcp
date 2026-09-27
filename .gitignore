@@ -7,4 +7,5 @@ build/
 .venv/
 *.json
 !package.json
+!mcp_config.json
 test_login.py
