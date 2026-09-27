@@ -1,16 +1,22 @@
-# 佳明 Garmin Connect × 小米澎湃OS (HyperOS) 专属 MCP 服务
+# 佳明 Garmin Connect × 小米澎湃OS 4.0 (HyperOS 4.0) 专属 MCP 服务
 
 <p align="center">
-  <b>针对小米澎湃OS（Xiaomi HyperOS）及超级小爱同学原生深度定制的 Model Context Protocol (MCP) 服务</b><br>
+  <b>针对小米澎湃OS 4.0（Xiaomi HyperOS 4.0+）及超级小爱同学原生深度定制的 Model Context Protocol (MCP) 服务</b><br>
   无需依赖任何外部服务器或内网环境，手机端直接运行，实现佳明健康数据读取、秒级全自动中继 Intervals.icu 与科学耐力决策。
 </p>
 
 ---
 
+> ⚠️ **【重要系统要求】**
+> **本服务仅适用于运行 小米澎湃OS 4.0（Xiaomi HyperOS 4.0）及以上版本的设备。**
+> 小米从 **HyperOS 4.0** 起，才在系统底层原生引入了端侧 MCP（Model Context Protocol）服务框架，并打通超级小爱同学智能体工具调用链。低于 4.0 的旧版本系统（如 HyperOS 1.0 / 2.0 / 3.0 或传统 MIUI）未开放系统级 MCP 服务管理入口，无法直接通过系统设置添加原生 MCP 服务。
+
+---
+
 ## 💡 为什么需要本服务？
 
-1. **摆脱内网与服务器束缚**：
-   传统佳明中继方案往往需要在家庭 NAS、树莓派或 VPS 上常驻搭建 Python/Docker 服务，一旦离开家庭局域网或服务器宕机便无法使用。**本项目专为小米澎湃OS (HyperOS) 原生设计，由手机端独立调度运行，随身随行，零外部基础设施依赖**。
+1. **HyperOS 4.0 原生端侧承载，彻底告别服务器束缚**：
+   传统佳明中继方案往往需要在家庭 NAS、树莓派或 VPS 上常驻搭建 Python/Docker 服务，一旦离开家庭局域网或服务器宕机便无法使用。**本项目专为小米澎湃OS 4.0 原生设计，由手机端独立调度运行，随身随行，零外部基础设施依赖**。
 2. **佳明国区生态与 Intervals.icu 完美打通**：
    - 佳明手表的强项是 **底层原始生理指标精确采集**（睡眠分期、夜间 HRV、静息心率、体能电量、活动 FIT）；
    - Intervals.icu 的强项是 **专业耐力建模分析**（CTL 体能、ATL 疲劳、TSB 竞技状态、有氧心率漂移解耦）；
@@ -47,17 +53,18 @@
 
 ---
 
-## 🚀 小米澎湃OS (HyperOS) 接入指南
+## 🚀 小米澎湃OS 4.0 (HyperOS 4.0) 接入指南
 
-小米澎湃OS 系统级支持添加 MCP 服务，在手机端直接配置即可：
+在搭载 **小米澎湃OS 4.0** 的设备上，进入系统设置或超级小爱管理中心：
 
 ### 1. 服务基本信息
+- **系统版本**：确认系统为 **Xiaomi HyperOS 4.0 或更高版本**
 - **服务名称**：`佳明小爱助手`（或 `garmin-hyperos`）
 - **代码仓库/源**：`https://github.com/anthony11122/garmin-hyperos-mcp`
-- **执行命令**：`python garmin_hyperos_mcp.py`
+- **执行入口**：`python garmin_hyperos_mcp.py`
 
 ### 2. 环境变量配置
-在手机 MCP 服务添加界面的环境变量中填入以下凭据：
+在手机端添加服务时，直接填入以下环境变量凭据：
 
 ```bash
 # 佳明国区账号
@@ -69,7 +76,7 @@ INTERVALS_API_KEY=your-intervals-api-key
 INTERVALS_ATHLETE_ID=0  # 填 0 或具体运动员 ID（如 i12345）
 ```
 
-*(也可以通过预先写入手机目录下的 `.env` 文件，程序会自动识别并加载)*
+*(服务支持自动从手机本地 `.env` 文件读取，也可以在添加时直接填入环境变量)*
 
 ### 3. 标准客户端配置示例 (`mcp_config.json`)
 若使用支持配置文件导入的 MCP 客户端：
@@ -93,9 +100,9 @@ INTERVALS_ATHLETE_ID=0  # 填 0 或具体运动员 ID（如 i12345）
 
 ---
 
-## 🗣️ 小爱同学语音对话示范
+## 🗣️ 小爱同学语音对话示范 (HyperOS 4.0)
 
-配置完成后，唤醒小爱同学即可实现自然语言驱动的运动健康自动化：
+在 HyperOS 4.0 中成功绑定后，唤醒小爱同学即可实现自然语言驱动的运动健康自动化：
 
 - 🗣️ **“小爱，帮我把佳明数据同步到 ICU”**
   ➔ 小爱自动调用 `auto_sync_to_icu(days=1)`，1~2 秒内自动拉取睡眠、HRV、步数与运动 FIT 上传至 Intervals.icu。
